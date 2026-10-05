@@ -3,7 +3,7 @@ import type { AnalysisPresetName, MoveClassification, Palette, Settings } from "
 export const APP_NAME = "ChessAnalyser";
 export const APP_VERSION = "0.1.0";
 /** Set this to the public GitHub URL once the repository is published; it is used in the Chess.com User-Agent. */
-export const REPOSITORY_URL = "";
+export const REPOSITORY_URL = "https://github.com/SashankUday/chess-analyser";
 
 /** Bumped whenever classification rules change (spec §67). */
 export const REVIEW_ALGORITHM_VERSION = 1;

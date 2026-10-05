@@ -12,8 +12,8 @@ Import your public Chess.com games, analyse them on your own computer with Stock
 ## Start
 
 ```bash
-git clone <this repository>
-cd ChessAnalyser
+git clone https://github.com/SashankUday/chess-analyser.git
+cd chess-analyser
 npm install
 npm run dev
 ```
