@@ -2,10 +2,11 @@ import crypto from "node:crypto";
 import { parseMove } from "@chessanalyser/chess-core";
 import type { ChessDb } from "@chessanalyser/database";
 import { AbortError, EnginePausedError, EngineUnavailableError } from "@chessanalyser/engine";
-import { reviewGame, summarise, type ReviewVerifier } from "@chessanalyser/review";
+import { reviewGame, summarise, type ReviewEngine } from "@chessanalyser/review";
 import {
-  BORDERLINE_MIN_NODES,
-  BRILLIANT,
+  REVIEW_MULTIPV,
+  THREAT_SEARCH,
+  VERIFICATION,
   type AnalysisPresetName,
   type EngineAnalysis,
   type GameReview,
@@ -74,7 +75,10 @@ export class AnalysisService {
     try {
       await Promise.all(
         fens.map(async (fen, ply) => {
-          const analysis = this.persist(await manager.analyse(fen, this.engine.request("FULL_GAME", preset, { jobId: job.id })));
+          // Same-root review needs the top lines of every position (V2 plan §6).
+          const analysis = this.persist(
+            await manager.analyse(fen, this.engine.request("FULL_GAME", preset, { jobId: job.id, multiPv: REVIEW_MULTIPV })),
+          );
           positions.set(ply, analysis);
           this.db.setGamePosition(gameId, ply, analysis.id, analysis.engine);
           job.done += 1;
@@ -86,8 +90,27 @@ export class AnalysisService {
       });
 
       const moves = this.db.getMoves(gameId);
-      const verifier = manager.identity?.capabilities.wdl ? this.verifier(job.id, preset) : undefined;
-      const reviews = await reviewGame({ gameId, moves, positions, verifier });
+      const identity = manager.identity;
+      const sameRoot = !!identity?.capabilities.multipv;
+      const game = this.games.get(gameId);
+      const presetRequest = this.engine.request("FULL_GAME", preset, { multiPv: REVIEW_MULTIPV });
+      const reviews = await reviewGame({
+        gameId,
+        moves,
+        positions,
+        engine: sameRoot ? this.reviewEngine(job.id, preset) : undefined,
+        perspective: game.userColour,
+        engineConfig: {
+          engine: identity?.name ?? "unknown",
+          version: identity?.version ?? "unknown",
+          network: identity?.network,
+          nodes: presetRequest.nodes,
+          verificationNodes: VERIFICATION.nodes,
+          multiPv: REVIEW_MULTIPV,
+          threads: this.engine.threads(),
+          hashMb: this.db.getSettings().hashMb,
+        },
+      });
       this.db.saveReviews(reviews);
       job.state = "completed";
       this.ui.broadcast({ type: "analysis.completed", job: { ...job } });
@@ -102,32 +125,33 @@ export class AnalysisService {
     }
   }
 
-  /** Targeted searches for Brilliant confirmation and borderline rechecks, scoped to the job. */
-  private verifier(jobId: string, preset: AnalysisPresetName): ReviewVerifier {
+  /** Engine searches the Review Algorithm 2 pipeline needs, scoped to the job so Cancel stops them. */
+  private reviewEngine(jobId: string, preset: AnalysisPresetName): ReviewEngine {
     const manager = this.engine.manager;
-    const base = this.engine.request("BRILLIANT_VERIFICATION", preset, { jobId });
+    const base = this.engine.request("CLASSIFICATION_VERIFICATION", preset, { jobId });
     return {
-      brilliant: async (fen) =>
+      restricted: async (fen, uci, deep) =>
+        this.persist(
+          await manager.analyse(fen, {
+            ...base,
+            preset: deep ? "verification" : preset,
+            nodes: deep ? Math.max(base.nodes, VERIFICATION.nodes) : base.nodes,
+            multiPv: 1,
+            searchMoves: [uci],
+          }),
+        ),
+      deepRoot: async (fen) =>
         this.persist(
           await manager.analyse(fen, {
             ...base,
             kind: "BRILLIANT_VERIFICATION",
             preset: "verification",
-            nodes: Math.max(base.nodes, BRILLIANT.verificationNodes),
-            multiPv: BRILLIANT.verificationMultiPv,
+            nodes: Math.max(base.nodes, VERIFICATION.nodes),
+            multiPv: VERIFICATION.multiPv,
           }),
         ),
-      restricted: async (fen, uci) =>
-        this.persist(
-          await manager.analyse(fen, {
-            ...base,
-            kind: "CLASSIFICATION_VERIFICATION",
-            preset: "verification",
-            nodes: Math.max(base.nodes, BORDERLINE_MIN_NODES),
-            multiPv: 1,
-            searchMoves: [uci],
-          }),
-        ),
+      probe: async (fen) =>
+        this.persist(await manager.analyse(fen, { ...base, preset: "custom", nodes: THREAT_SEARCH.nodes, multiPv: 1 })),
     };
   }
 
@@ -148,6 +172,7 @@ export class AnalysisService {
     });
     return {
       gameId,
+      algorithmVersion: reviews.length ? Math.min(...reviews.map((r) => r.algorithmVersion)) : null,
       complete: game.supported && reviews.length === fens.length - 1 && positions.every((p) => p !== null),
       reviews,
       positions,

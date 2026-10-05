@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { EngineAnalysis } from "@chessanalyser/shared";
-import { ChessDb, type NewGame } from "../src";
+import { ChessDb, defaultMigrationsDir, type NewGame } from "../src";
 
 const dirs: string[] = [];
 function tempDb(): { file: string; db: ChessDb } {
@@ -39,7 +39,7 @@ const game = (sourceGameId: string, profileId: string | null): NewGame => ({
 describe("ChessDb", () => {
   it("applies migrations once and preserves data on reopen", () => {
     const { file, db } = tempDb();
-    expect(db.migrations.map((m) => m.version)).toEqual([1]);
+    expect(db.migrations.map((m) => m.version)).toEqual([1, 2]);
     const p = db.upsertProfile("chesscom", "Alice");
     db.insertGame(game("live/1", p.id), []);
     db.close();
@@ -47,6 +47,42 @@ describe("ChessDb", () => {
     expect(reopened.migrations).toEqual([]);
     expect(reopened.listGames({ filter: "all", limit: 10, offset: 0 })).toHaveLength(1);
     reopened.close();
+  });
+
+  it("upgrades a V1 database without touching existing V1 reviews", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ca-db-"));
+    dirs.push(dir);
+    const v1Migrations = path.join(dir, "v1-migrations");
+    fs.mkdirSync(v1Migrations);
+    fs.copyFileSync(path.join(defaultMigrationsDir(), "001_initial.sql"), path.join(v1Migrations, "001_initial.sql"));
+    const file = path.join(dir, "v1.sqlite");
+    const v1 = new ChessDb(file, { migrationsDir: v1Migrations });
+    const gameId = v1.insertGame(game("live/9", null), [])!;
+    const review = {
+      gameId, ply: 1, mover: "white" as const, playedMoveSan: "e4", playedMoveUci: "e2e4", classification: "best" as const,
+      badges: [], evaluationBefore: { whiteCp: 20, mateForWhiteIn: null }, evaluationAfter: { whiteCp: 20, mateForWhiteIn: null },
+      expectedScoreBest: 0.5, expectedScorePlayed: 0.5, expectedScoreLoss: 0, bestMoveSan: "e4", bestMoveUci: "e2e4",
+      bestLineId: null, tags: [], explanation: "V1", engine: "Stockfish", engineVersion: "19", algorithmVersion: 1,
+      verified: false, reduced: false,
+    };
+    // Written with the V1 schema, as V1 of ChessAnalyser did.
+    v1.db
+      .prepare(
+        `INSERT INTO move_reviews (id, game_id, ply, mover, played_move_san, played_move_uci, classification, badges_json,
+           evaluation_before, evaluation_after, tags_json, explanation, engine, engine_version, algorithm_version, created_at)
+         VALUES ('r1', ?, 1, 'white', 'e4', 'e2e4', 'best', '[]', ?, ?, '[]', 'V1', 'Stockfish', '19', 1, '2026-01-01')`,
+      )
+      .run(gameId, JSON.stringify(review.evaluationBefore), JSON.stringify(review.evaluationAfter));
+    v1.close();
+
+    const upgraded = new ChessDb(file);
+    expect(upgraded.migrations.map((m) => m.version)).toEqual([2]);
+    expect(upgraded.getReviews(gameId)).toMatchObject([{ algorithmVersion: 1, explanation: "V1" }]);
+    // A V2 review of the same move is stored alongside, and becomes the one shown.
+    upgraded.saveReviews([{ ...review, algorithmVersion: 2, explanation: "V2" }]);
+    expect(upgraded.getReviews(gameId)).toMatchObject([{ algorithmVersion: 2, explanation: "V2" }]);
+    expect(Number((upgraded.db.prepare("SELECT COUNT(*) AS n FROM move_reviews").get() as { n: number }).n)).toBe(2);
+    upgraded.close();
   });
 
   it("prevents duplicate imports via (source, source_game_id)", () => {

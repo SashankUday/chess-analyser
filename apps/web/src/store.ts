@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   CLASSIFICATION_ORDER,
+  LINE_DISPLAY_PLIES,
   type AiAccess,
   type Arrow,
   type BoardMode,
@@ -160,8 +161,12 @@ export const useApp = create<AppState>((set, get) => ({
       set({ mode: { ...mode, index: where === "start" ? 0 : variation.moves.length } });
   },
 
-  showLine: (line, index = 1) =>
-    set({ line, variation: null, mode: { type: "engineVariation", lineId: line.lineId, index: Math.min(index, line.moves.length) } }),
+  showLine: (line, index = 1) => {
+    // Lines are shown as 6–10 ply continuations (V2 plan §36); AI lines keep any candidate prefix.
+    const limit = LINE_DISPLAY_PLIES + (line.source === "ai" ? Math.max(0, index - 1) : 0);
+    const capped = { ...line, moves: line.moves.slice(0, limit) };
+    set({ line: capped, variation: null, mode: { type: "engineVariation", lineId: line.lineId, index: Math.min(index, capped.moves.length) } });
+  },
 
   showVariation: (variation, index) =>
     set({

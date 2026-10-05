@@ -72,8 +72,7 @@ describe("Stockfish 19", () => {
   });
 
   it("recovers after the process is killed", async () => {
-    engine.kill();
-    await new Promise((r) => setTimeout(r, 100));
+    await engine.kill();
     const a = await engine.analysePosition({ fen: START }, opts);
     expect(a.lines.length).toBe(1);
   });

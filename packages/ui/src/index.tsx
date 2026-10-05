@@ -8,9 +8,10 @@ import {
 
 const GLYPHS: Record<MoveClassification, string> = {
   brilliant: "!!",
+  great: "!",
   best: "★",
-  excellent: "!",
-  good: "✓",
+  excellent: "✓",
+  good: "·",
   inaccuracy: "?!",
   mistake: "?",
   blunder: "??",

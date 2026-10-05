@@ -127,6 +127,7 @@ export interface EngineAnalysis {
 
 export type MoveClassification =
   | "brilliant"
+  | "great"
   | "best"
   | "excellent"
   | "good"
@@ -135,7 +136,14 @@ export type MoveClassification =
   | "blunder"
   | "forced";
 
-export type MoveBadge = "missed_mate" | "allows_mate" | "missed_win" | "wins_material" | "loses_material";
+export type MoveBadge =
+  | "missed_mate"
+  | "allows_mate"
+  | "missed_win"
+  | "missed_material"
+  | "wins_material"
+  | "loses_material"
+  | "only_move";
 
 export type TacticalTag =
   | "hangs_piece"
@@ -182,6 +190,176 @@ export interface MoveReview {
   verified: boolean;
   /** True when produced without WDL (Apple Chess/Sjeng fallback). */
   reduced: boolean;
+  /** Review Algorithm 2 detail (absent on V1 reviews). */
+  v2?: MoveReviewV2Details;
+}
+
+// ---------------- Review Algorithm 2 ----------------
+
+export type ResultClass =
+  | "FORCED_WIN"
+  | "WINNING"
+  | "ADVANTAGE"
+  | "EQUAL"
+  | "DISADVANTAGE"
+  | "LOSING"
+  | "FORCED_LOSS";
+
+/** A root move compared from the pre-move position. All scores are mover-relative. */
+export interface RootMoveScore {
+  san: string;
+  uci: string;
+  cp: number;
+  winPercent: number;
+  rank: number | null;
+}
+
+/** Same-root move-quality measurement (V2 plan §10). Mover-relative throughout. */
+export interface MoveQualityMetrics {
+  bestCp: number;
+  playedCp: number;
+  cpLoss: number;
+  bestWinPercent: number;
+  playedWinPercent: number;
+  winPercentLoss: number;
+  /** 1-based rank among the engine's MultiPV lines; null when outside them. */
+  playedRank: number | null;
+  resultClassBefore: ResultClass;
+  resultClassAfter: ResultClass;
+  /** Win% gap between the best and second-best move; null with fewer than two legal moves. */
+  criticality: number | null;
+  /** True when the played move's score came from the same root search as the best move's. */
+  sameSearch: boolean;
+  nodes: number;
+  rootMoves: RootMoveScore[];
+}
+
+export interface TacticalMove {
+  san: string;
+  uci: string;
+  /** Net material gain in pawns (static exchange), for captures. */
+  gain?: number;
+}
+
+export type ThreatKind = "mate" | "material" | "promotion" | "fork";
+
+export interface Threat {
+  kind: ThreatKind;
+  /** The side making the threat. */
+  side: Colour;
+  san: string;
+  uci: string;
+  description: string;
+  /** Material at stake in pawns, when applicable. */
+  value?: number;
+  confidence: "forced" | "high" | "medium";
+}
+
+export interface MateThreat {
+  side: Colour;
+  mateIn: number;
+  firstMove: string;
+  firstMoveUci: string;
+  /** Engine line id of the threat search (a hypothetical "if it were their move" position). */
+  lineId: string | null;
+  line: string[];
+  /** "forced": a verified mate; "attack": a strong but unverified mating attack. */
+  confidence: "forced" | "attack";
+}
+
+export interface HangingPiece {
+  square: string;
+  piece: string;
+  colour: Colour;
+  /** Material the opponent would win, in pawns. */
+  value: number;
+}
+
+export interface ForcedMaterialSequence {
+  /** The side that comes out ahead. */
+  side: Colour;
+  amount: number;
+  /** What is lost, e.g. "a bishop", "the exchange". */
+  description: string;
+  /** Plies until the material is won and kept. */
+  plies: number;
+  immediate: boolean;
+  /** SAN moves of the demonstrating line, starting from the position it describes. */
+  line: string[];
+  lineId: string | null;
+  firstPly: number;
+}
+
+export interface PositionInsights {
+  sideToMove: Colour;
+  inCheck: boolean;
+  checks: TacticalMove[];
+  captures: TacticalMove[];
+  /** Threats by the side NOT to move (what they would do if it were their turn). */
+  threats: Threat[];
+  mateThreat?: MateThreat;
+  hangingPieces: HangingPiece[];
+  forcedMaterialGain?: ForcedMaterialSequence;
+  forcedMaterialLoss?: ForcedMaterialSequence;
+  criticality: number | null;
+}
+
+export interface MoveExplanation {
+  headline: string;
+  summary: string;
+  positionChange?: string;
+  threatBefore?: string;
+  consequence?: string;
+  bestMoveReason?: string;
+  /** Engine line demonstrating the consequence (starts at `lineStartPly`). */
+  lineId?: string;
+  line?: string;
+  lineStartPly?: number;
+  confidence: "high" | "medium" | "low";
+}
+
+export interface DiagnosticCheck {
+  name: string;
+  pass: boolean;
+  detail: string;
+}
+
+export interface BrilliantDiagnostics {
+  candidate: boolean;
+  checks: DiagnosticCheck[];
+  result: boolean;
+  sacrifice?: { amount: number; kind: string; acceptSan: string | null };
+}
+
+export interface ReviewEngineConfig {
+  engine: string;
+  version: string;
+  network?: string;
+  nodes: number;
+  verificationNodes: number;
+  multiPv: number;
+  threads?: number;
+  hashMb?: number;
+}
+
+export interface ReviewDiagnostics {
+  preliminaryClassification: MoveClassification;
+  preliminaryMetrics: MoveQualityMetrics;
+  verificationReasons: string[];
+  overrides: string[];
+  brilliant?: BrilliantDiagnostics;
+  great?: DiagnosticCheck[];
+}
+
+export interface MoveReviewV2Details {
+  metrics: MoveQualityMetrics;
+  insightsBefore: PositionInsights | null;
+  insightsAfter: PositionInsights | null;
+  explanation: MoveExplanation;
+  diagnostics: ReviewDiagnostics;
+  engineConfig: ReviewEngineConfig;
+  /** Engine line of the played move from the same root (starts with the played move). */
+  playedLineId: string | null;
 }
 
 export interface ReviewSummary {
@@ -192,6 +370,8 @@ export interface ReviewSummary {
 export interface GameReview {
   gameId: GameId;
   complete: boolean;
+  /** Lowest review algorithm version among the stored reviews (null when not reviewed). */
+  algorithmVersion: number | null;
   reviews: MoveReview[];
   /** Per-position evaluation, index = ply (0 = start position). Null when not yet analysed. */
   positions: (PositionEvaluation | null)[];
@@ -212,6 +392,10 @@ export type VariationType = "engine" | "user" | "ai_selected";
 export interface Variation {
   id: VariationId;
   gameId: GameId;
+  /** The variation this one branched from, when created by playing a different move mid-line. */
+  parentId: VariationId | null;
+  /** Number of the parent's moves shared before this branch diverges. */
+  branchIndex: number | null;
   /** The ply of the position the variation branches from (0 = start position). */
   startingPly: number;
   type: VariationType;

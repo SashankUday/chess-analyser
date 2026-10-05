@@ -105,6 +105,9 @@ export function buildAnalysis(args: {
   for (const info of finals) {
     const moves = uciLineToMoves(args.fen, info.pv);
     if (moves.length === 0) continue;
+    // A node-limited search can stop mid-iteration, leaving a stale report in a later MultiPV slot
+    // that repeats a root move already listed; keep each root move once (the higher-ranked report).
+    if (lines.some((l) => l.rootMoveUci === moves[0]!.uci)) continue;
     lines.push({
       id: crypto.randomUUID(),
       rank: lines.length + 1,

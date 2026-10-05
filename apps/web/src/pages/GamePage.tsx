@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { checkedKingSquare } from "@chessanalyser/chess-core";
+import { moveNumberLabel } from "@chessanalyser/shared";
 import type { EngineAnalysis, Variation } from "@chessanalyser/shared";
 import { api, ApiError } from "../api";
 import { ChessBoard, type BoardArrow } from "../components/ChessBoard";
@@ -57,7 +58,7 @@ export function GamePage({ gameId, initialPly }: { gameId: string; initialPly: n
   const variationKey = mode?.type === "userVariation" ? `${mode.variationId}:${mode.index}` : null;
   useEffect(() => {
     setVariationAnalysis(null);
-    if (mode?.type !== "userVariation" || mode.index === 0) return;
+    if (mode?.type !== "userVariation") return;
     const timer = setTimeout(() => {
       api
         .post<EngineAnalysis>(`/api/variations/${mode.variationId}/analyse`, { index: mode.index })
@@ -66,6 +67,17 @@ export function GamePage({ gameId, initialPly }: { gameId: string; initialPly: n
     }, 250);
     return () => clearTimeout(timer);
   }, [variationKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sibling branches of the current user variation (V2 plan §42).
+  const variationId = mode?.type === "userVariation" ? mode.variationId : null;
+  const [branches, setBranches] = useState<Variation[]>([]);
+  useEffect(() => {
+    if (!variationId) return setBranches([]);
+    api
+      .get<Variation[]>(`/api/variations/${variationId}/family`)
+      .then(setBranches)
+      .catch(() => setBranches([]));
+  }, [variationId]);
 
   const arrows = useMemo<BoardArrow[]>(() => {
     const out: BoardArrow[] = [];
@@ -133,6 +145,23 @@ export function GamePage({ gameId, initialPly }: { gameId: string; initialPly: n
     }
   };
 
+  /** Play engine-suggested moves into the current user variation, one validated move at a time. */
+  const playUserMoves = async (ucis: string[]) => {
+    const s = useApp.getState();
+    if (s.mode?.type !== "userVariation" || !s.variation) return;
+    let v = s.variation;
+    let index = s.mode.index;
+    try {
+      for (const uci of ucis) {
+        if (v.moves[index]?.uci !== uci) v = await api.post<Variation>(`/api/variations/${v.id}/moves`, { atIndex: index, move: uci });
+        index += 1;
+      }
+      s.showVariation(v, index);
+    } catch (err) {
+      console.warn("Continuation rejected", err);
+    }
+  };
+
   const orientation = flipped ? "black" : "white";
   const top = flipped ? game.white : game.black;
   const bottom = flipped ? game.black : game.white;
@@ -163,9 +192,9 @@ export function GamePage({ gameId, initialPly }: { gameId: string; initialPly: n
                 <span>
                   {top.username} <span className="rating">({top.rating ?? "?"})</span>
                 </span>
-                {view.inVariation && <span className="mode-label">VARIATION</span>}
               </div>
-              <div className="board-frame">
+              {mode.type !== "game" && <ModeBanner />}
+              <div className="board-frame" data-mode={mode.type === "engineVariation" ? "engine" : mode.type === "userVariation" ? "user" : "game"}>
                 <ChessBoard
                   fen={view.fen}
                   orientation={orientation}
@@ -216,13 +245,39 @@ export function GamePage({ gameId, initialPly }: { gameId: string; initialPly: n
         </div>
 
         <div className="area-panel">
-          <ReviewPanel variationAnalysis={variationAnalysis} />
+          <ReviewPanel variationAnalysis={variationAnalysis} branches={branches} playUserMoves={(u) => void playUserMoves(u)} />
         </div>
 
         <div className="area-moves">
           <MoveList />
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Above-board label so engine moves, your moves and the real game are never confused (V2 plan §37). */
+function ModeBanner() {
+  const mode = useApp((s) => s.mode);
+  const line = useApp((s) => s.line);
+  const variation = useApp((s) => s.variation);
+  const moves = useApp((s) => s.moves);
+  const returnToGame = useApp((s) => s.returnToGame);
+  if (!mode || mode.type === "game") return null;
+  const base = (mode.type === "engineVariation" ? line?.startingPly : variation?.startingPly) ?? 0;
+  const after = base > 0 ? `${moveNumberLabel(base)} ${moves[base - 1]?.san ?? ""}` : "the start";
+  const engine = mode.type === "engineVariation";
+  return (
+    <div className="mode-banner" data-mode={engine ? "engine" : "user"} data-testid="mode-banner">
+      <span>
+        <strong className="mode-label" data-mode={engine ? "engine" : "user"}>
+          {engine ? "ENGINE VARIATION" : "YOUR VARIATION"}
+        </strong>{" "}
+        {engine ? `Stockfish's continuation after ${after}` : `Your moves after ${after}`}
+      </span>
+      <button className="btn btn-sm" onClick={returnToGame}>
+        Return to game
+      </button>
     </div>
   );
 }

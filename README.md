@@ -6,7 +6,7 @@ Import your public Chess.com games, analyse them on your own computer with Stock
 
 ## Requirements
 
-- Node.js 22.12 or newer, and npm
+- Node.js 22.13 or newer, and npm
 - An internet connection for the first Stockfish download and for Chess.com syncing
 
 ## Start
@@ -42,27 +42,62 @@ Analysis modes, which you can change per game or in Settings:
 | Standard (default) | 200,000 nodes, plus extra checks on possible Brilliant moves and close calls |
 | Deep | 1,000,000 nodes, 3 lines |
 
-### How moves are classified
+### How moves are classified (Review Algorithm 2)
 
-ChessAnalyser measures each move by **expected-outcome loss**, not raw centipawns. Expected outcome is `P(win) + ½·P(draw)`, taken from Stockfish's WDL output. The loss is how much of that a move gives up compared with Stockfish's best move:
+ChessAnalyser asks one question for every move: **how much worse was it than the best move available
+from exactly the same position?**
 
-| Loss | Label |
+**1. Compare from the same position.** Stockfish searches the position *before* the move and returns its top three moves. If you played one of them, that score is used. Otherwise ChessAnalyser searches your move from the same position, with the same budget (`go searchmoves`). Comparing two separate searches of different positions is avoided, because search noise there can make a move look better or worse than it is.
+
+**2. Score from the mover's side.** All scores are converted to the mover's point of view: +3.7 → +7.8 is an improvement for White and a serious deterioration for Black. Centipawns are converted to winning chances with the [Lichess formula](https://lichess.org/page/accuracy). The **Win% loss** is the main measure:
+
+| Win% loss | Label |
 | ---: | --- |
-| ≤ 0.005 | Best |
-| ≤ 0.02 | Excellent |
-| ≤ 0.05 | Good |
-| ≤ 0.10 | Inaccuracy |
-| ≤ 0.20 | Mistake |
-| > 0.20 | Blunder |
+| Stockfish's top move (or verified as equal to it) | **Best** |
+| < 2 | Excellent |
+| < 5 | Good |
+| < 10 | Inaccuracy |
+| < 20 | Mistake |
+| ≥ 20 | Blunder |
 
-Some rules override these thresholds:
+While the game is still undecided, centipawn guards also apply: Excellent needs under 50 cp lost, and Good under 100 cp.
 
-- **Only legal move:** labelled *Forced* and never criticised.
-- **Allowing a forced mate:** at least a *Blunder*.
-- **Close calls:** a move that lands within 0.01 of a boundary is re-searched, comparing the played move and the best move at the same budget.
-- **Brilliant:** awarded only to an apparent sacrifice that Stockfish confirms in a dedicated multi-line search.
+**3. When moves are re-checked.** Suspicious, borderline (within 1 point of a boundary) and "almost as good as the top move" results are re-checked with a deeper search (1,000,000 nodes, three lines) from the same position. The re-check result is the one used.
 
-The thresholds live in [packages/shared/src/constants.ts](packages/shared/src/constants.ts). Every review records the engine version and the review algorithm version.
+**4. When a move is at least a Blunder.**
+
+- It newly allows a forced mate.
+- It turns a winning or equal position into a losing one.
+- It throws away a short forced mate or a clear win.
+- It loses major material by force, with the engine agreeing there is no compensation.
+
+**5. Special labels.**
+
+- **Great:** Stockfish's top move when it is the only move that holds the position, or when it turns the game around. Recaptures and simply taking hanging material don't count.
+- **Brilliant:** a sound sacrifice. It passes an explicit checklist: top move, real sacrifice, accepting it doesn't refute it, the result is preserved, not trivial, and confirmed by a deeper search.
+- **Forced:** the only legal move.
+- **Miss** badges mark a missed mate, a missed winning position or missed material.
+
+**6. Explanations** are built from Stockfish's lines and exact board facts:
+
+- whether a move allows or misses mate;
+- what material is lost, and whether immediately or *eventually*, with the line that shows it;
+- threats such as *"White was threatening Qh7#, and g6 prevents it"*;
+- why the best move was better.
+
+Claims that can't be verified are worded conservatively.
+
+All thresholds are central constants in [packages/shared/src/constants.ts](packages/shared/src/constants.ts). Each review stores its engine version, node budget, MultiPV, threads, hash and review algorithm version. Reviews made with Review Algorithm 1 are kept, and the game page offers to re-analyse them.
+
+To see the full diagnostics for every move (rank, centipawn and Win% from the mover's side, result transition, why it was re-checked, and the Brilliant and Great checklists), open the app with `?debugReview=1`, for example <http://127.0.0.1:5173/?debugReview=1>.
+
+### Exploring positions
+
+- **Show line:** steps through Stockfish's continuation (up to 10 plies) in **engine variation** mode. It has a blue frame and banner, so engine moves are never mistaken for the game.
+- **Your own moves:** drag or click a piece from any position to start **your variation** (amber frame). Stockfish analyses each new position and shows its best response and continuation. Click a continuation move to play it into your line.
+- **Branches:** going back and playing a different move creates a new branch, and the old line is kept.
+- **Promotion:** you choose the piece, so underpromotion works.
+- **Scrolling:** moving through moves never scrolls the page; the move list scrolls on its own.
 
 ## Using an AI assistant (optional)
 
@@ -148,6 +183,7 @@ On macOS, if Stockfish can't be installed, ChessAnalyser falls back to the Sjeng
 | `npm test` | Unit and integration tests (no engine download needed) |
 | `npm run test:engine` | Integration tests against real Stockfish 19 (downloads it once into `.data/`) |
 | `npm run test:e2e` | Browser tests (Playwright; run `npx playwright install chromium` once) |
+| `npm run calibrate -- --games 40` | Analyse a varied sample of imported games and write a classification report (for tuning the constants) |
 | `npm run lint` / `npm run typecheck` | Code quality |
 | `npm run build` then `npm start` | Production build, served from a single local port |
 
@@ -157,7 +193,7 @@ On macOS, if Stockfish can't be installed, ChessAnalyser falls back to the Sjeng
 Chess.com PubAPI ──► ChessAnalyser backend (Fastify, 127.0.0.1 only) ◄── MCP adapter ◄── AI client
                        │ GameService · ImportService · AnalysisService
                        │ VariationService · AiPermissionService · UiSessionService
-                       ├── SQLite (better-sqlite3, numbered migrations)
+                       ├── SQLite (built-in node:sqlite, numbered migrations)
                        ├── Stockfish 19 (one managed process, priority queue)
                        └── WebSocket ──► React UI
 ```
@@ -169,7 +205,7 @@ Chess.com PubAPI ──► ChessAnalyser backend (Fastify, 127.0.0.1 only) ◄�
 | `apps/mcp` | Thin stdio MCP adapter that calls the HTTP API. It contains no chess logic. |
 | `packages/chess-core` | PGN parsing, move validation, material and tactics helpers (chess.js) |
 | `packages/engine` | Stockfish (UCI) and Sjeng (xboard) adapters, installer, analysis queue and cache |
-| `packages/review` | Classifier, `BrilliantDetector`, tactical tags, explanations |
+| `packages/review` | Review Algorithm 2: same-root metrics, classifier, Great and `BrilliantDetector`, position insights, explanations |
 | `packages/chesscom` | Chess.com PubAPI client with ETag/Last-Modified caching and 429 back-off |
 | `packages/database` | Schema, migrations, repositories |
 | `packages/shared` | Canonical types and Zod schemas used by the HTTP API, MCP and tests |

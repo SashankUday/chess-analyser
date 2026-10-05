@@ -7,10 +7,19 @@ import { useApp } from "../store";
 export function MoveList() {
   const { moves, review, mode, line, variation, goToPly, returnToGame } = useApp();
   const current = useRef<HTMLButtonElement>(null);
+  const table = useRef<HTMLDivElement>(null);
   const ply = mode?.type === "game" ? mode.ply : null;
 
+  // Keep the current move visible by scrolling the list itself — never the page (V2 plan §44).
   useEffect(() => {
-    current.current?.scrollIntoView({ block: "nearest" });
+    const el = current.current;
+    const box = table.current;
+    if (box && ply === 0) box.scrollTop = 0;
+    if (!el || !box) return;
+    const top = el.offsetTop;
+    const bottom = top + el.offsetHeight;
+    if (top < box.scrollTop) box.scrollTop = Math.max(0, top - 4);
+    else if (bottom > box.scrollTop + box.clientHeight) box.scrollTop = bottom - box.clientHeight + 4;
   }, [ply]);
 
   if (!mode) return null;
@@ -21,9 +30,11 @@ export function MoveList() {
   return (
     <div className="card moves-card">
       {branch && "index" in mode && (
-        <div className="variation-bar" data-testid="variation-bar">
+        <div className="variation-bar" data-testid="variation-bar" data-mode={mode.type === "engineVariation" ? "engine" : "user"}>
           <div>
-            <div className="mode-label">{mode.type === "engineVariation" ? "ENGINE LINE" : "VARIATION"}</div>
+            <div className="mode-label" data-mode={mode.type === "engineVariation" ? "engine" : "user"}>
+              {mode.type === "engineVariation" ? "ENGINE VARIATION" : "YOUR VARIATION"}
+            </div>
             <div className="line" style={{ marginTop: 2 }}>
               {branch.moves.map((m, i) => {
                 const p = branch.startingPly + 1 + i;
@@ -31,7 +42,7 @@ export function MoveList() {
                   <span key={i} style={{ display: "contents" }}>
                     {(i === 0 || p % 2 === 1) && <span className="line-num">{moveNumberLabel(p)}</span>}
                     <button
-                      className="line-move"
+                      className={`line-move${mode.type === "userVariation" ? " user-move" : ""}`}
                       aria-current={mode.index === i + 1}
                       onClick={() => useApp.setState({ mode: { ...mode, index: i + 1 } })}
                     >
@@ -53,7 +64,7 @@ export function MoveList() {
       {moves.length === 0 ? (
         <p className="muted">No moves.</p>
       ) : (
-        <div className="move-table" role="list">
+        <div className="move-table" role="list" ref={table}>
           {Array.from({ length: rows }, (_, r) => {
             const white = moves[r * 2];
             const black = moves[r * 2 + 1];

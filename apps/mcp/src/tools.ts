@@ -56,7 +56,7 @@ export const TOOLS: ToolSpec[] = [
   {
     name: "get_move_review",
     title: "Get move review",
-    description: `The Game Review for the move played at \`ply\`: classification, evaluation before → after, expected-score loss, best move, best line (with a line_id for show_variation), tactical tags and explanation. ${AUTHORITY}`,
+    description: `The Game Review for the move played at \`ply\`, measured against the best move from the same position: classification, the move's engine rank, centipawn and Win% loss (from the mover's side), result before → after, threats, a structured explanation, the best line and the line showing the consequence (each with a line_id for show_variation). ${AUTHORITY}`,
     schema: AiPositionInput,
     kind: "read",
   },

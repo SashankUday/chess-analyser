@@ -43,6 +43,8 @@ export class VariationService {
       type: "user",
       createdBy: "user",
       moves: [move],
+      parentId: null,
+      branchIndex: null,
       saved: false,
       sessionId: input.sessionId ?? null,
     };
@@ -50,16 +52,55 @@ export class VariationService {
     return publicView(v);
   }
 
-  /** Keep the first `atIndex` moves, then append `move` (a move from mid-line replaces the rest). */
+  /**
+   * Play `move` after the first `atIndex` moves. At the end of the line this extends it; mid-line it
+   * creates a new branch that shares the first `atIndex` moves (the original line is kept, V2 plan §42).
+   */
   extend(id: string, atIndex: number, moveText: string): Variation {
     const v = this.temp.get(id);
     if (!v) throw notFound("Variation");
     if (atIndex > v.moves.length) throw new HttpError(400, "BAD_INDEX", "That position is not part of this variation.");
     const fen = atIndex === 0 ? this.games.positionFen(v.gameId, v.startingPly) : v.moves[atIndex - 1]!.fenAfter;
     const move = this.validate(fen, moveText);
-    v.moves = [...v.moves.slice(0, atIndex), move];
-    v.saved = false;
-    return publicView(v);
+    if (atIndex === v.moves.length) {
+      v.moves = [...v.moves, move];
+      v.saved = false;
+      return publicView(v);
+    }
+    if (v.moves[atIndex]!.uci === move.uci) return publicView(v);
+    const branch: TempVariation = {
+      ...v,
+      id: crypto.randomUUID(),
+      moves: [...v.moves.slice(0, atIndex), move],
+      parentId: v.id,
+      branchIndex: atIndex,
+      saved: false,
+    };
+    this.temp.set(branch.id, branch);
+    return publicView(branch);
+  }
+
+  /** Every temporary line related to `id` (its root and all branches), for switching between them. */
+  family(id: string): Variation[] {
+    const v = this.temp.get(id);
+    if (!v) throw notFound("Variation");
+    let root = v;
+    while (root.parentId && this.temp.get(root.parentId)) root = this.temp.get(root.parentId)!;
+    const out: TempVariation[] = [];
+    const visit = (node: TempVariation) => {
+      out.push(node);
+      for (const child of this.temp.values()) if (child.parentId === node.id) visit(child);
+    };
+    visit(root);
+    return out.map(publicView);
+  }
+
+  /** FEN after `index` moves of a variation (0 = the branch position in the game). */
+  fenAt(id: string, index: number): string {
+    const v = this.temp.get(id);
+    if (!v) throw notFound("Variation");
+    if (index > v.moves.length) throw new HttpError(400, "BAD_INDEX", "That position is not part of this variation.");
+    return index === 0 ? this.games.positionFen(v.gameId, v.startingPly) : v.moves[index - 1]!.fenAfter;
   }
 
   get(id: string): Variation {

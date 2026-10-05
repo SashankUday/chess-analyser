@@ -6,7 +6,7 @@
   "license": "MIT",
   "type": "module",
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.13"
   },
   "workspaces": [
     "packages/*",
@@ -22,7 +22,8 @@
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "npm run build -w @chessanalyser/web && npm run build -w @chessanalyser/server && npm run build -w @chessanalyser/mcp",
-    "start": "node apps/server/dist/index.js"
+    "start": "node apps/server/dist/index.js",
+    "calibrate": "tsx scripts/calibrate.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

@@ -173,8 +173,10 @@ export class StockfishEngine implements ChessEngine {
     this.proc = null;
   }
 
-  /** Test hook: simulate a crash. */
-  kill(): void {
-    this.proc?.kill();
+  /** Test hook: simulate a crash. Resolves once the process has exited. */
+  async kill(): Promise<void> {
+    const proc = this.proc;
+    proc?.kill();
+    await proc?.exited;
   }
 }

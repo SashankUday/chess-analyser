@@ -57,7 +57,7 @@ export class MockEngine implements ChessEngine {
         rootMoveSan: s.m.san,
         evaluation,
         wdl: mockWdl(evaluation),
-        moves: uciLineToMoves(fen, [s.m.lan]),
+        moves: uciLineToMoves(fen, [s.m.lan, ...greedyReply(s.m.after)]),
       };
     });
     const top = lines[0];
@@ -89,4 +89,13 @@ function mockWdl(e: NormalisedEvaluation): Wdl {
   const draw = Math.max(0, 0.6 - Math.abs(p - 0.5) * 1.2);
   const rest = 1 - draw;
   return { whiteWin: rest * p, draw, blackWin: rest * (1 - p) };
+}
+
+/** A deterministic short continuation: the opponent's best capture by static exchange, if any. */
+function greedyReply(fen: string): string[] {
+  const capture = legalMoves(fen)
+    .filter((m) => m.captured)
+    .map((m) => ({ m, gain: staticExchange(fen, m) }))
+    .sort((a, b) => b.gain - a.gain || a.m.lan.localeCompare(b.m.lan))[0];
+  return capture && capture.gain > 0 ? [capture.m.lan] : [];
 }

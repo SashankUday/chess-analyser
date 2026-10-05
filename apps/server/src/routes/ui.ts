@@ -17,7 +17,7 @@ import {
 } from "@chessanalyser/shared";
 import { dataPaths } from "@chessanalyser/shared/node";
 import type { AppContext } from "../context";
-import { badRequest, fromZod } from "../errors";
+import { fromZod } from "../errors";
 
 export function parse<S extends z.ZodType>(schema: S, data: unknown): z.infer<S> {
   const r = schema.safeParse(data);
@@ -128,11 +128,11 @@ export function registerUiRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.post("/api/variations/:variationId/analyse", async (req) => {
     const body = parse(AnalyseVariationBody, req.body);
-    const v = ctx.variations.get(idParam(req.params, "variationId"));
-    const move = v.moves[body.index - 1];
-    if (!move) throw badRequest("That position is not part of this variation.");
-    return ctx.analysis.analyseFen(move.fenAfter, { preset: body.preset });
+    const fen = ctx.variations.fenAt(idParam(req.params, "variationId"), body.index);
+    return ctx.analysis.analyseFen(fen, { preset: body.preset, multipv: 1 });
   });
+
+  app.get("/api/variations/:variationId/family", async (req) => ctx.variations.family(idParam(req.params, "variationId")));
 
   app.get("/api/variations/:variationId", async (req) => ctx.variations.get(idParam(req.params, "variationId")));
 

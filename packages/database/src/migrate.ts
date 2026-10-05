@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type BetterSqlite3 from "better-sqlite3";
+import { transaction, type Database } from "./sqlite";
 
 export interface AppliedMigration {
   version: number;
@@ -21,7 +21,7 @@ export function defaultMigrationsDir(): string {
 }
 
 /** Apply numbered `NNN_name.sql` migrations in order, each in its own transaction (spec §35). */
-export function migrate(db: BetterSqlite3.Database, dir = defaultMigrationsDir()): AppliedMigration[] {
+export function migrate(db: Database, dir = defaultMigrationsDir()): AppliedMigration[] {
   db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -40,7 +40,7 @@ export function migrate(db: BetterSqlite3.Database, dir = defaultMigrationsDir()
     const version = Number(file.slice(0, 3));
     if (applied.has(version)) continue;
     const sql = fs.readFileSync(path.join(dir, file), "utf8");
-    const run = db.transaction(() => {
+    transaction(db, () => {
       db.exec(sql);
       db.prepare("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)").run(
         version,
@@ -48,7 +48,6 @@ export function migrate(db: BetterSqlite3.Database, dir = defaultMigrationsDir()
         new Date().toISOString(),
       );
     });
-    run();
     newlyApplied.push({ version, name: file });
   }
   return newlyApplied;

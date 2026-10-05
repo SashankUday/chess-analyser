@@ -56,9 +56,20 @@ const ROLE_FILL: Record<OverlayRole, string> = {
 export function ChessBoard(props: ChessBoardProps) {
   const { fen, orientation, lastMove, checkSquare, arrows = [], highlights = [], badge, onMove } = props;
   const [selected, setSelected] = useState<string | null>(null);
+  const [promotion, setPromotion] = useState<{ from: string; to: string; colour: "w" | "b" } | null>(null);
   const colours = useRoleColours();
 
-  useEffect(() => setSelected(null), [fen]);
+  useEffect(() => {
+    setSelected(null);
+    setPromotion(null);
+  }, [fen]);
+
+  useEffect(() => {
+    if (!promotion) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPromotion(null);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [promotion]);
 
   const moves = useMemo(() => {
     try {
@@ -72,9 +83,13 @@ export function ChessBoard(props: ChessBoardProps) {
   const tryMove = (from: string, to: string): boolean => {
     const candidates = moves.filter((m) => m.from === from && m.to === to);
     if (!candidates.length || !onMove) return false;
-    const chosen = candidates.find((m) => !m.promotion || m.promotion === "q") ?? candidates[0]!;
-    onMove(chosen.lan);
     setSelected(null);
+    if (candidates.some((m) => m.promotion)) {
+      // Underpromotion is supported: ask instead of assuming a queen (V2 plan §43).
+      setPromotion({ from, to, colour: candidates[0]!.color });
+      return false;
+    }
+    onMove(candidates[0]!.lan);
     return true;
   };
 
@@ -108,6 +123,7 @@ export function ChessBoard(props: ChessBoardProps) {
   );
 
   return (
+    <div style={{ position: "relative" }}>
     <Chessboard
       options={{
         id: "chessanalyser-board",
@@ -139,5 +155,31 @@ export function ChessBoard(props: ChessBoardProps) {
         ),
       }}
     />
+      {promotion && (
+        <div className="promotion-overlay" onClick={() => setPromotion(null)}>
+          <div className="card promotion-menu" role="dialog" aria-label="Choose promotion piece" onClick={(e) => e.stopPropagation()}>
+            {(["q", "r", "b", "n"] as const).map((p, i) => (
+              <button
+                key={p}
+                autoFocus={i === 0}
+                aria-label={PROMOTION_NAMES[p]}
+                title={PROMOTION_NAMES[p]}
+                data-testid={`promote-${p}`}
+                onClick={() => {
+                  onMove?.(`${promotion.from}${promotion.to}${p}`);
+                  setPromotion(null);
+                }}
+              >
+                {(promotion.colour === "w" ? WHITE_GLYPHS : BLACK_GLYPHS)[p]}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
+
+const PROMOTION_NAMES = { q: "Queen", r: "Rook", b: "Bishop", n: "Knight" } as const;
+const WHITE_GLYPHS = { q: "♕", r: "♖", b: "♗", n: "♘" } as const;
+const BLACK_GLYPHS = { q: "♛", r: "♜", b: "♝", n: "♞" } as const;

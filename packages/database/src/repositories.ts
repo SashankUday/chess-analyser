@@ -1,7 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import Database from "better-sqlite3";
 import {
   DEFAULT_SETTINGS,
   type Colour,
@@ -18,6 +17,7 @@ import {
   type Variation,
 } from "@chessanalyser/shared";
 import { migrate, type AppliedMigration } from "./migrate";
+import { DatabaseSync, transaction, type Database, type SqlValue } from "./sqlite";
 
 type Row = Record<string, unknown>;
 
@@ -58,19 +58,23 @@ export interface StoredLine {
 }
 
 export class ChessDb {
-  readonly db: Database.Database;
+  readonly db: Database;
   readonly migrations: AppliedMigration[];
 
   constructor(file: string, options: { migrationsDir?: string } = {}) {
     if (file !== ":memory:") fs.mkdirSync(path.dirname(file), { recursive: true });
-    this.db = new Database(file);
-    this.db.pragma("journal_mode = WAL");
-    this.db.pragma("foreign_keys = ON");
-    this.db.pragma("busy_timeout = 5000");
+    this.db = new DatabaseSync(file);
+    if (file !== ":memory:") this.db.exec("PRAGMA journal_mode = WAL");
+    this.db.exec("PRAGMA foreign_keys = ON");
+    this.db.exec("PRAGMA busy_timeout = 5000");
     this.migrations = migrate(this.db, options.migrationsDir);
   }
 
+  private closed = false;
+
   close(): void {
+    if (this.closed) return;
+    this.closed = true;
     this.db.close();
   }
 
@@ -110,7 +114,7 @@ export class ChessDb {
   /** Insert a game and its moves atomically. Returns the new id, or null if it was already imported. */
   insertGame(game: NewGame, moves: Omit<GameMove, "gameId">[]): string | null {
     const id = crypto.randomUUID();
-    const insert = this.db.transaction(() => {
+    const insert = () => transaction(this.db, () => {
       const res = this.db
         .prepare(
           `INSERT OR IGNORE INTO games (id, profile_id, source, source_game_id, url, pgn, white_username, black_username,
@@ -164,7 +168,7 @@ export class ChessDb {
 
   listGames(opts: { profileId?: string; filter: GameFilter; limit: number; offset: number }): GameSummary[] {
     const where: string[] = [];
-    const params: unknown[] = [];
+    const params: SqlValue[] = [];
     if (opts.profileId) {
       where.push("g.profile_id = ?");
       params.push(opts.profileId);
@@ -232,7 +236,7 @@ export class ChessDb {
   }
 
   saveAnalysis(a: EngineAnalysis, config: unknown): EngineAnalysis {
-    const save = this.db.transaction(() => {
+    const save = () => transaction(this.db, () => {
       // Replace any earlier result for the same position + configuration.
       this.db.prepare("DELETE FROM engine_analyses WHERE fen_hash = ? AND config_hash = ?").run(fenHash(a.fen), a.configHash);
       this.db
@@ -285,13 +289,18 @@ export class ChessDb {
   }
 
   clearEngineCache(): number {
-    return this.db.prepare("DELETE FROM engine_analyses").run().changes;
+    return Number(this.db.prepare("DELETE FROM engine_analyses").run().changes);
   }
 
   private hydrateAnalysis(row: Row): EngineAnalysis {
+    // Older cache rows may repeat a root move across MultiPV slots; keep the first (best-ranked).
+    const seen = new Set<string>();
     const lines = (this.db
       .prepare("SELECT * FROM engine_lines WHERE analysis_id = ? ORDER BY rank")
-      .all(row.id) as Row[]).map(toLine);
+      .all(String(row.id)) as Row[])
+      .map(toLine)
+      .filter((l) => !seen.has(l.rootMoveUci) && seen.add(l.rootMoveUci))
+      .map((l, i) => ({ ...l, rank: i + 1 }));
     const hasWdl = row.white_win !== null && row.white_win !== undefined;
     return {
       id: String(row.id),
@@ -346,9 +355,9 @@ export class ChessDb {
       `INSERT INTO move_reviews (id, game_id, ply, mover, played_move_san, played_move_uci, classification, badges_json,
          evaluation_before, evaluation_after, expected_score_best, expected_score_played, expected_score_loss,
          best_move_uci, best_move_san, best_line_id, tags_json, explanation, engine, engine_version, algorithm_version,
-         verified, reduced, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (game_id, ply) DO UPDATE SET
+         verified, reduced, details_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (game_id, ply, algorithm_version) DO UPDATE SET
          mover = excluded.mover, played_move_san = excluded.played_move_san, played_move_uci = excluded.played_move_uci,
          classification = excluded.classification, badges_json = excluded.badges_json,
          evaluation_before = excluded.evaluation_before, evaluation_after = excluded.evaluation_after,
@@ -356,10 +365,10 @@ export class ChessDb {
          expected_score_loss = excluded.expected_score_loss, best_move_uci = excluded.best_move_uci,
          best_move_san = excluded.best_move_san, best_line_id = excluded.best_line_id, tags_json = excluded.tags_json,
          explanation = excluded.explanation, engine = excluded.engine, engine_version = excluded.engine_version,
-         algorithm_version = excluded.algorithm_version, verified = excluded.verified, reduced = excluded.reduced,
+         verified = excluded.verified, reduced = excluded.reduced, details_json = excluded.details_json,
          created_at = excluded.created_at`,
     );
-    const save = this.db.transaction(() => {
+    const save = () => transaction(this.db, () => {
       for (const r of reviews) {
         stmt.run(
           crypto.randomUUID(),
@@ -385,6 +394,7 @@ export class ChessDb {
           r.algorithmVersion,
           r.verified ? 1 : 0,
           r.reduced ? 1 : 0,
+          r.v2 ? json(r.v2) : null,
           now(),
         );
       }
@@ -392,15 +402,22 @@ export class ChessDb {
     save();
   }
 
+  /** Reviews from the newest review algorithm that has reviewed this game (older versions stay stored). */
   getReviews(gameId: string): MoveReview[] {
-    return (this.db.prepare("SELECT * FROM move_reviews WHERE game_id = ? ORDER BY ply").all(gameId) as Row[]).map(
-      toReview,
-    );
+    const latest = this.db
+      .prepare("SELECT MAX(algorithm_version) AS v FROM move_reviews WHERE game_id = ?")
+      .get(gameId) as Row | undefined;
+    if (latest?.v === null || latest?.v === undefined) return [];
+    return (
+      this.db
+        .prepare("SELECT * FROM move_reviews WHERE game_id = ? AND algorithm_version = ? ORDER BY ply")
+        .all(gameId, Number(latest.v)) as Row[]
+    ).map(toReview);
   }
 
   getReview(gameId: string, ply: number): MoveReview | null {
     const row = this.db
-      .prepare("SELECT * FROM move_reviews WHERE game_id = ? AND ply = ?")
+      .prepare("SELECT * FROM move_reviews WHERE game_id = ? AND ply = ? ORDER BY algorithm_version DESC LIMIT 1")
       .get(gameId, ply) as Row | undefined;
     return row ? toReview(row) : null;
   }
@@ -410,9 +427,10 @@ export class ChessDb {
   saveVariation(v: Omit<Variation, "saved">): void {
     this.db
       .prepare(
-        "INSERT INTO variations (id, game_id, starting_ply, type, created_by, moves_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        `INSERT INTO variations (id, game_id, starting_ply, type, created_by, moves_json, parent_id, branch_index, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(v.id, v.gameId, v.startingPly, v.type, v.createdBy, json(v.moves), now());
+      .run(v.id, v.gameId, v.startingPly, v.type, v.createdBy, json(v.moves), v.parentId, v.branchIndex, now());
   }
 
   listVariations(gameId: string): Variation[] {
@@ -424,6 +442,8 @@ export class ChessDb {
         type: String(r.type) as Variation["type"],
         createdBy: String(r.created_by) as Variation["createdBy"],
         moves: parse(r.moves_json),
+        parentId: (r.parent_id as string) ?? null,
+        branchIndex: numOrNull(r.branch_index),
         saved: true,
       }),
     );
@@ -445,7 +465,7 @@ export class ChessDb {
     const stmt = this.db.prepare(
       "INSERT INTO settings (key, value_json) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value_json = excluded.value_json",
     );
-    const save = this.db.transaction(() => {
+    const save = () => transaction(this.db, () => {
       for (const [k, v] of Object.entries(patch)) if (v !== undefined) stmt.run(k, json(v));
     });
     save();
@@ -588,5 +608,6 @@ function toReview(r: Row): MoveReview {
     algorithmVersion: Number(r.algorithm_version),
     verified: !!r.verified,
     reduced: !!r.reduced,
+    ...(r.details_json ? { v2: parse(r.details_json) } : {}),
   };
 }

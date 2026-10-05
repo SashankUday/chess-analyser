@@ -15,6 +15,8 @@ const games = [
   { name: "hanging-queen", id: 9001, end: 1_790_000_000 },
   { name: "sacrifice-legal-mate", id: 9002, end: 1_790_100_000 },
   { name: "missed-mate", id: 9003, end: 1_790_200_000 },
+  { name: "opera-game", id: 9004, end: 1_790_300_000 },
+  { name: "promotion", id: 9005, end: 1_790_400_000 },
 ].map((g) => ({
   url: `https://www.chess.com/game/live/${g.id}`,
   pgn: pgn(g.name).replace('[White "W"]', '[White "e2euser"]').replace('[Black "B"]', '[Black "opponentA"]'),

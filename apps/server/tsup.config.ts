@@ -9,9 +9,8 @@ export default defineConfig({
   outDir: "dist",
   clean: true,
   splitting: false,
-  // Workspace packages ship as TypeScript source; bundle them. Native modules stay external.
+  // Workspace packages ship as TypeScript source; bundle them.
   noExternal: [/^@chessanalyser\//],
-  external: ["better-sqlite3"],
   banner: { js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" },
   onSuccess: async () => {
     fs.cpSync("../../packages/database/migrations", "dist/migrations", { recursive: true });

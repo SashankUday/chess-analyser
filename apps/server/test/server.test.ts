@@ -115,7 +115,10 @@ describe("analysis and review", () => {
     expect(review.reviews).toHaveLength(5);
     const qh4 = review.reviews.find((r) => r.playedMoveSan === "Qh4")!;
     expect(qh4.classification).toBe("blunder");
-    expect(qh4.tags).toContain("hangs_piece");
+    expect(qh4.algorithmVersion).toBe(2);
+    expect(qh4.v2?.metrics.playedRank).toBeNull();
+    expect(qh4.tags).toContain("loses_material");
+    expect(qh4.explanation).toContain("queen");
   });
 
   it("serves a second analysis entirely from the cache", async () => {

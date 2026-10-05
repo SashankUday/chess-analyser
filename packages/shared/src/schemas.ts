@@ -92,8 +92,8 @@ export const ExtendVariationBody = z.object({
 });
 
 export const AnalyseVariationBody = z.object({
-  /** Number of variation moves applied (1 = after the first variation move). */
-  index: z.number().int().min(1).max(500),
+  /** Number of variation moves applied (0 = the branch position, 1 = after the first variation move). */
+  index: z.number().int().min(0).max(500),
   preset: PresetSchema.optional(),
 });
 

@@ -183,6 +183,18 @@ export class AiToolService {
         bestLine = null;
       }
     }
+    const v2 = review.v2;
+    // The engine line that demonstrates the explanation (e.g. how material is lost) is showable too.
+    let consequenceLine: ReturnType<typeof lineView> | null = null;
+    if (v2?.explanation.lineId && v2.explanation.lineId !== review.bestLineId) {
+      try {
+        const line = this.variations.line(v2.explanation.lineId);
+        this.issue(line, gameId, ply - 1, []);
+        consequenceLine = lineView(line);
+      } catch {
+        consequenceLine = null;
+      }
+    }
     return {
       reviewed: true,
       ply,
@@ -192,15 +204,42 @@ export class AiToolService {
       badges: review.badges,
       evaluation_before: formatEvaluation(review.evaluationBefore),
       evaluation_after: formatEvaluation(review.evaluationAfter),
-      expected_score_best: review.expectedScoreBest,
-      expected_score_played: review.expectedScorePlayed,
-      expected_score_loss: review.expectedScoreLoss,
+      ...(v2
+        ? {
+            // Mover-relative, measured from the same pre-move position.
+            played_rank: v2.metrics.playedRank,
+            cp_loss: v2.metrics.cpLoss,
+            win_percent_best: v2.metrics.bestWinPercent,
+            win_percent_played: v2.metrics.playedWinPercent,
+            win_percent_loss: v2.metrics.winPercentLoss,
+            result_before: v2.metrics.resultClassBefore,
+            result_after: v2.metrics.resultClassAfter,
+            criticality: v2.metrics.criticality,
+            top_moves: v2.metrics.rootMoves.map((m) => ({ move: m.san, rank: m.rank, cp: m.cp, win_percent: m.winPercent })),
+            threats_before: v2.insightsBefore?.threats.map((t) => ({ by: t.side, move: t.san, kind: t.kind, description: t.description })) ?? [],
+            threats_after: v2.insightsAfter?.threats.map((t) => ({ by: t.side, move: t.san, kind: t.kind, description: t.description })) ?? [],
+            explanation_detail: {
+              headline: v2.explanation.headline,
+              position_change: v2.explanation.positionChange ?? null,
+              threat_before: v2.explanation.threatBefore ?? null,
+              consequence: v2.explanation.consequence ?? null,
+              best_move_reason: v2.explanation.bestMoveReason ?? null,
+              confidence: v2.explanation.confidence,
+            },
+            consequence_line: consequenceLine,
+          }
+        : {
+            expected_score_best: review.expectedScoreBest,
+            expected_score_played: review.expectedScorePlayed,
+            expected_score_loss: review.expectedScoreLoss,
+          }),
       best_move: review.bestMoveSan,
       best_line: bestLine,
       tags: review.tags,
       explanation: review.explanation,
       engine: `${review.engine} ${review.engineVersion}`,
       review_algorithm_version: review.algorithmVersion,
+      verified_by_deeper_search: review.verified,
       reduced_review: review.reduced,
     };
   }
