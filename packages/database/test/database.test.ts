@@ -6,13 +6,18 @@ import type { EngineAnalysis } from "@chessanalyser/shared";
 import { ChessDb, defaultMigrationsDir, type NewGame } from "../src";
 
 const dirs: string[] = [];
+const open: ChessDb[] = [];
 function tempDb(): { file: string; db: ChessDb } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ca-db-"));
   dirs.push(dir);
   const file = path.join(dir, "test.sqlite");
-  return { file, db: new ChessDb(file) };
+  const db = new ChessDb(file);
+  open.push(db);
+  return { file, db };
 }
 afterEach(() => {
+  // Windows cannot delete a database file that is still open.
+  for (const db of open.splice(0)) db.close();
   for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
 });
 
