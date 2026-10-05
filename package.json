@@ -1,0 +1,39 @@
+{
+  "name": "chessanalyser",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Free, local chess game analysis powered by Stockfish.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "tsx scripts/dev.ts",
+    "setup": "tsx apps/server/src/setup.ts",
+    "mcp": "tsx apps/mcp/src/index.ts",
+    "test": "vitest run",
+    "test:engine": "vitest run --config vitest.engine.config.ts",
+    "test:e2e": "playwright test",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "npm run build -w @chessanalyser/web && npm run build -w @chessanalyser/server && npm run build -w @chessanalyser/mcp",
+    "start": "node apps/server/dist/index.js"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.63.0",
+    "@types/node": "^22.15.0",
+    "eslint": "10.12.0",
+    "eslint-plugin-react-hooks": "^7.0.0",
+    "globals": "17.13.0",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.0",
+    "vitest": "5.0.3"
+  }
+}

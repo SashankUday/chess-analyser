@@ -1,0 +1,9 @@
+[Event "Fixture"]
+[Site "Chess.com"]
+[White "W"]
+[Black "B"]
+[Result "0-1"]
+[Variant "Chess960"]
+[SetUp "1"]
+[FEN "bbqnnrkr/pppppppp/8/8/8/8/PPPPPPPP/BBQNNRKR w HFhf - 0 1"]
+1. e4 e5 0-1

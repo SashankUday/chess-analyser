@@ -1,0 +1,11 @@
+{
+  "name": "@chessanalyser/review",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@chessanalyser/chess-core": "0.1.0",
+    "@chessanalyser/shared": "0.1.0"
+  }
+}

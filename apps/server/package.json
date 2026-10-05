@@ -1,0 +1,26 @@
+{
+  "name": "@chessanalyser/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsup"
+  },
+  "dependencies": {
+    "@chessanalyser/chess-core": "0.1.0",
+    "@chessanalyser/chesscom": "0.1.0",
+    "@chessanalyser/database": "0.1.0",
+    "@chessanalyser/engine": "0.1.0",
+    "@chessanalyser/review": "0.1.0",
+    "@chessanalyser/shared": "0.1.0",
+    "@fastify/static": "10.1.5",
+    "@fastify/websocket": "11.3.3",
+    "fastify": "5.12.5",
+    "pino": "10.4.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.2",
+    "tsup": "8.5.1"
+  }
+}

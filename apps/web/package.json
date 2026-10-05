@@ -1,0 +1,26 @@
+{
+  "name": "@chessanalyser/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@chessanalyser/chess-core": "0.1.0",
+    "@chessanalyser/shared": "0.1.0",
+    "@chessanalyser/ui": "0.1.0",
+    "react": "19.3.0",
+    "react-chessboard": "5.12.1",
+    "react-dom": "19.3.0",
+    "recharts": "3.10.1",
+    "zustand": "5.0.15"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "vite": "8.3.2"
+  }
+}

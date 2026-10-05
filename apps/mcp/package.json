@@ -1,0 +1,21 @@
+{
+  "name": "@chessanalyser/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "chessanalyser-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup"
+  },
+  "dependencies": {
+    "@chessanalyser/shared": "0.1.0",
+    "@modelcontextprotocol/server": "2.3.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.3.0",
+    "tsup": "8.5.1"
+  }
+}

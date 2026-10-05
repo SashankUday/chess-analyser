@@ -1,0 +1,8 @@
+[Event "Fixture"]
+[Site "Chess.com"]
+[White "W"]
+[Black "B"]
+[Result "1/2-1/2"]
+[SetUp "1"]
+[FEN "8/8/8/4k3/8/2b5/3NK3/8 b - - 0 1"]
+1... Bxd2 2. Kxd2 1/2-1/2

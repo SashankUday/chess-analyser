@@ -1,0 +1,16 @@
+{
+  "name": "@chessanalyser/engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@chessanalyser/chess-core": "0.1.0",
+    "@chessanalyser/shared": "0.1.0",
+    "adm-zip": "0.6.1",
+    "tar": "7.5.22"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "0.5.8"
+  }
+}
